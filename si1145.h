@@ -1,30 +1,13 @@
-/***************************************************
-  This is a library for the Si1145 UV/IR/Visible Light Sensor
+#ifndef __SI1145_H__
+#define __SI1145_H__
 
-  Designed specifically to work with the Si1145 sensor in the
-  adafruit shop
-  ----> https://www.adafruit.com/products/1777
+#include <stdbool.h>
+#include <i2cdev.h>
+#include <esp_err.h>
 
-  These sensors use I2C to communicate, 2 pins are required to
-  interface
-  Adafruit invests time and resources providing this open source code,
-  please support Adafruit and open-source hardware by purchasing
-  products from Adafruit!
 
-  Written by Limor Fried/Ladyada for Adafruit Industries.
-  BSD license, all text above must be included in any redistribution
- ****************************************************/
-#ifndef _SI1145_H_
-#define _SI1145_H_
+#define I2C_FREQ_HZ 1000000 // Up to 3.4MHz, but esp-idf only supports 1MHz
 
-#if (ARDUINO >= 100)
-#include "Arduino.h"
-#else
-#include "WProgram.h"
-#endif
-#include <Adafruit_I2CDevice.h>
-
-/* COMMANDS */
 #define SI1145_PARAM_QUERY 0x80
 #define SI1145_PARAM_SET 0xA0
 #define SI1145_NOP 0x0
@@ -143,29 +126,85 @@
 #define SI1145_REG_CHIPSTAT 0x30
 
 #define SI1145_ADDR 0x60
-/**
- * @brief Library for using the Si1145 UV/IR/Visible Light Sensor
- *
- */
-class Adafruit_SI1145 {
-public:
-  Adafruit_SI1145(void);
-  ~Adafruit_SI1145();
-  boolean begin(uint8_t addr = SI1145_ADDR, TwoWire *pBus = &Wire);
-  boolean begin(TwoWire *pBus);
-  void reset();
 
-  uint16_t readUV();
-  uint16_t readIR();
-  uint16_t readVisible();
-  uint16_t readProx();
 
-private:
-  uint16_t read16(uint8_t addr);
-  uint8_t read8(uint8_t addr);
-  void write8(uint8_t reg, uint8_t val);
-  uint8_t readParam(uint8_t p);
-  uint8_t writeParam(uint8_t p, uint8_t v);
-  Adafruit_I2CDevice *i2c_dev = NULL; ///< Pointer to I2C bus interface
-};
+#ifdef __cplusplus
+extern "C" {
 #endif
+
+typedef struct
+{
+    i2c_dev_t i2c_dev;              //!< I2C device descriptor
+
+} si1145_t;
+
+/**
+ * @brief Initialize device descriptor
+ *
+ * @param dev Device descriptor to be initialized
+ * @param port I2C port number
+ * @param sda_gpio GPIO pin for SDA
+ * @param scl_gpio GPIO pin for SCL
+ * @return `ESP_OK` on success
+ */
+esp_err_t si1145_init_desc(si1145_t *dev, i2c_port_t port, gpio_num_t sda_gpio, gpio_num_t scl_gpio);
+
+/**
+ * @brief Free device descriptor
+ *
+ * @param dev Device descriptor
+ * @return `ESP_OK` on success
+ */
+esp_err_t si1145_free_desc(si1145_t *dev);
+
+/**
+ * @brief   Initialize an SI1145 sensor
+ * The sensor must be connected to an I2C bus.
+ * *
+ * @param dev Device descriptor
+ * @return `ESP_OK` on success
+ */
+esp_err_t si1145_init_sensor(si1145_t *dev);
+
+/**
+ * @brief Get the current UV reading
+ * *
+ * @param dev Device descriptor
+ * @param out UV index * 100  -> this addr
+ * @return `ESP_OK` on success
+ */
+esp_err_t si1145_read_uv(si1145_t *dev, uint16_t *out);
+
+/**
+ * @brief Get the Infrared light level
+ * *
+ * @param dev Device descriptor
+ * @param out Infrared light level -> this addr
+ * @return `ESP_OK` on success
+ */
+esp_err_t si1145_read_ir(si1145_t *dev, uint16_t *out);
+
+/**
+ * @brief Get the Visible & IR light levels
+ * *
+ * @param dev Device descriptor
+ * @param out Visible & IR light levels -> this addr
+ * @return `ESP_OK` on success
+ */
+esp_err_t si1145_read_visible(si1145_t *dev, uint16_t *out);
+
+/**
+ * @brief Get the Proximity measurement - **Requires an attached IR LED**
+ * *
+ * @param dev Device descriptor
+ * @param out Proximity measurement -> this addr
+ * @return `ESP_OK` on success
+ */
+esp_err_t si1145_read_prox(si1145_t *dev, uint16_t *out);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif /* __SI1145_H__ */
