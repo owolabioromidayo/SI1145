@@ -28,15 +28,15 @@ static const char *TAG = "si1145";
 #define CHECK_ARG(VAL) do { if (!(VAL)) return ESP_ERR_INVALID_ARG; } while (0)
 
 
-static uint8_t read8(const i2c_dev_t *i2c_dev, uint8_t reg_addr);
-static uint16_t read16(const i2c_dev_t *i2c_dev, uint16_t reg_addr);
-static esp_err_t write8(const i2c_dev_t *i2c_dev,  uint8_t reg_addr, uint8_t val);
-static esp_err_t writeParam(const i2c_dev_t *i2c_dev, uint8_t p, uint8_t v);
-static uint8_t readParam(const i2c_dev_t *i2c_dev, uint8_t p); 
-static esp_err_t si1145_read_from_addr(uint8_t reg_addr, si1145t *dev, uint16_t *out)
+static uint8_t read8(i2c_dev_t *i2c_dev, uint8_t reg_addr);
+static uint16_t read16(i2c_dev_t *i2c_dev, uint16_t reg_addr);
+static esp_err_t write8(i2c_dev_t *i2c_dev,  uint8_t reg_addr, uint8_t val);
+static uint8_t writeParam(i2c_dev_t *i2c_dev, uint8_t p, uint8_t v);
+static uint8_t readParam(i2c_dev_t *i2c_dev, uint8_t p); 
+static esp_err_t si1145_read_from_addr(uint8_t reg_addr, si1145_t *dev, uint16_t *out);
 
 
-void reset(si1145_t *dev) 
+esp_err_t reset(si1145_t *dev) 
 {
     CHECK(write8(&dev->i2c_dev, SI1145_REG_MEASRATE0, 0));
     CHECK(write8(&dev->i2c_dev, SI1145_REG_MEASRATE1, 0));
@@ -50,6 +50,8 @@ void reset(si1145_t *dev)
     vTaskDelay((TickType_t)(10/ portTICK_PERIOD_MS)); //10ms delay 
     CHECK(write8(&dev->i2c_dev, SI1145_REG_HWKEY, 0x17));
     vTaskDelay((TickType_t)(10/ portTICK_PERIOD_MS)); 
+
+    return ESP_OK;
 }
 
 esp_err_t si1145_init_desc(si1145_t *dev, i2c_port_t port, 
@@ -73,15 +75,15 @@ esp_err_t si1145_free_desc(si1145_t *dev)
     return i2c_dev_delete_mutex(&dev->i2c_dev);
 }
 
-esp_err_t si1145_init_sensor(bme680_t *dev)
+esp_err_t si1145_init_sensor(si1145_t *dev)
 {
     CHECK_ARG(dev);
 
     uint8_t id = read8(&dev->i2c_dev, SI1145_REG_PARTID);
     if (id != 0x45)
-    return ESP_FAIL; // look for SI1145
+        return ESP_FAIL; // look for SI1145
 
-    reset();
+    reset(dev);
 
     /***********************************/
     // enable UVindex measurement coefficients!
@@ -91,9 +93,9 @@ esp_err_t si1145_init_sensor(bme680_t *dev)
     CHECK(write8(&dev->i2c_dev, SI1145_REG_UCOEFF3, 0x00));
 
     // enable UV sensor
-    CHECK(writeParam(&dev->i2c_dev, SI1145_PARAM_CHLIST,
+    writeParam(&dev->i2c_dev, SI1145_PARAM_CHLIST,
                 SI1145_PARAM_CHLIST_ENUV | SI1145_PARAM_CHLIST_ENALSIR |
-                    SI1145_PARAM_CHLIST_ENALSVIS | SI1145_PARAM_CHLIST_ENPS1));
+                    SI1145_PARAM_CHLIST_ENALSVIS | SI1145_PARAM_CHLIST_ENPS1);
     // enable interrupt on every sample
     CHECK(write8(&dev->i2c_dev, SI1145_REG_INTCFG, SI1145_REG_INTCFG_INTOE));
     CHECK(write8(&dev->i2c_dev, SI1145_REG_IRQEN, SI1145_REG_IRQEN_ALSEVERYSAMPLE));
@@ -102,31 +104,31 @@ esp_err_t si1145_init_sensor(bme680_t *dev)
 
     // program LED current
     CHECK(write8(&dev->i2c_dev, SI1145_REG_PSLED21, 0x03)); // 20mA for LED 1 only
-    CHECK(writeParam(&dev->i2c_dev, SI1145_PARAM_PS1ADCMUX, SI1145_PARAM_ADCMUX_LARGEIR));
+    writeParam(&dev->i2c_dev, SI1145_PARAM_PS1ADCMUX, SI1145_PARAM_ADCMUX_LARGEIR);
     // prox sensor #1 uses LED #1
-    CHECK(writeParam(&dev->i2c_dev, SI1145_PARAM_PSLED12SEL, SI1145_PARAM_PSLED12SEL_PS1LED1));
+    writeParam(&dev->i2c_dev, SI1145_PARAM_PSLED12SEL, SI1145_PARAM_PSLED12SEL_PS1LED1);
     // fastest clocks, clock div 1
-    CHECK(writeParam(&dev->i2c_dev, SI1145_PARAM_PSADCGAIN, 0));
+    writeParam(&dev->i2c_dev, SI1145_PARAM_PSADCGAIN, 0);
     // take 511 clocks to measure
-    CHECK(writeParam(&dev->i2c_dev, SI1145_PARAM_PSADCOUNTER, SI1145_PARAM_ADCCOUNTER_511CLK));
+    writeParam(&dev->i2c_dev, SI1145_PARAM_PSADCOUNTER, SI1145_PARAM_ADCCOUNTER_511CLK);
     // in prox mode, high range
-    CHECK(writeParam(&dev->i2c_dev, SI1145_PARAM_PSADCMISC,
-                SI1145_PARAM_PSADCMISC_RANGE | SI1145_PARAM_PSADCMISC_PSMODE));
+    writeParam(&dev->i2c_dev, SI1145_PARAM_PSADCMISC,
+                SI1145_PARAM_PSADCMISC_RANGE | SI1145_PARAM_PSADCMISC_PSMODE);
 
-    CHECK(writeParam(&dev->i2c_dev, SI1145_PARAM_ALSIRADCMUX, SI1145_PARAM_ADCMUX_SMALLIR));
+    writeParam(&dev->i2c_dev, SI1145_PARAM_ALSIRADCMUX, SI1145_PARAM_ADCMUX_SMALLIR);
     // fastest clocks, clock div 1
-    CHECK(writeParam(&dev->i2c_dev, SI1145_PARAM_ALSIRADCGAIN, 0));
+    writeParam(&dev->i2c_dev, SI1145_PARAM_ALSIRADCGAIN, 0);
     // take 511 clocks to measure
-    CHECK(writeParam(&dev->i2c_dev, SI1145_PARAM_ALSIRADCOUNTER, SI1145_PARAM_ADCCOUNTER_511CLK));
+    writeParam(&dev->i2c_dev, SI1145_PARAM_ALSIRADCOUNTER, SI1145_PARAM_ADCCOUNTER_511CLK);
     // in high range mode
-    CHECK(writeParam(&dev->i2c_dev, SI1145_PARAM_ALSIRADCMISC, SI1145_PARAM_ALSIRADCMISC_RANGE));
+    writeParam(&dev->i2c_dev, SI1145_PARAM_ALSIRADCMISC, SI1145_PARAM_ALSIRADCMISC_RANGE);
 
     // fastest clocks, clock div 1
-    CHECK(writeParam(&dev->i2c_dev, SI1145_PARAM_ALSVISADCGAIN, 0));
+    writeParam(&dev->i2c_dev, SI1145_PARAM_ALSVISADCGAIN, 0);
     // take 511 clocks to measure
-    CHECK(writeParam(&dev->i2c_dev, SI1145_PARAM_ALSVISADCOUNTER, SI1145_PARAM_ADCCOUNTER_511CLK));
+    writeParam(&dev->i2c_dev, SI1145_PARAM_ALSVISADCOUNTER, SI1145_PARAM_ADCCOUNTER_511CLK);
     // in high range mode (not normal signal)
-    CHECK(writeParam(&dev->i2c_dev, SI1145_PARAM_ALSVISADCMISC, SI1145_PARAM_ALSVISADCMISC_VISRANGE));
+    writeParam(&dev->i2c_dev, SI1145_PARAM_ALSVISADCMISC, SI1145_PARAM_ALSVISADCMISC_VISRANGE);
 
     /************************/
 
@@ -142,33 +144,30 @@ esp_err_t si1145_init_sensor(bme680_t *dev)
 
 esp_err_t si1145_read_uv(si1145_t *dev, uint16_t *out) 
 { 
-   return si1145_read_from_addr(0x2C, &dev, &out);
+   return si1145_read_from_addr(0x2C, dev, out);
 }
 
 esp_err_t si1145_read_ir(si1145_t *dev, uint16_t *out) 
 {    
-   return si1145_read_from_addr(0x24, &dev, &out);
+   return si1145_read_from_addr(0x24, dev, out);
 }
 
 esp_err_t si1145_read_visible(si1145_t *dev, uint16_t *out) 
 {      
-   return si1145_read_from_addr(0x22, &dev, &out);
+   return si1145_read_from_addr(0x22, dev, out);
 }
 
 esp_err_t si1145_read_prox(si1145_t *dev, uint16_t *out) 
 {      
-   return si1145_read_from_addr(0x26, &dev, &out);
+   return si1145_read_from_addr(0x26, dev, out);
 }
 
 
-static esp_err_t si1145_read_from_addr(uint8_t reg_addr, si1145t *dev, uint16_t *out)
+static esp_err_t si1145_read_from_addr(uint8_t reg_addr, si1145_t *dev, uint16_t *out)
 {
     CHECK_ARG(dev);
 
     uint16_t temp = read16(&dev->i2c_dev, reg_addr); 
-
-    if (temp == ESP_FAIL)
-        return ESP_FAIL;
 
     *out = temp; 
     return ESP_OK;
@@ -176,63 +175,59 @@ static esp_err_t si1145_read_from_addr(uint8_t reg_addr, si1145t *dev, uint16_t 
 
 
 //read 8 bits from register
-static uint8_t read8(const i2c_dev_t *i2c_dev, uint8_t reg_addr)
+static uint8_t read8(i2c_dev_t *i2c_dev, uint8_t reg_addr)
 {
     uint8_t buffer[1] = {reg_addr};
 
-    I2C_DEV_TAKE_MUTEX(&i2c_dev);
+    I2C_DEV_TAKE_MUTEX(i2c_dev);
 
-    if (!i2c_dev_write_reg(&i2c_dev, reg_addr, buffer, 1))
-        return ESP_FAIL;
+    i2c_dev_write_reg(i2c_dev, reg_addr, buffer, 1);
+    i2c_dev_read_reg(i2c_dev, reg_addr, buffer, 1);
 
-    i2c_dev_read_reg(&i2c_dev, reg_addr, buffer, 1);
-
-    I2C_DEV_GIVE_MUTEX(&i2c_dev);
+    I2C_DEV_GIVE_MUTEX(i2c_dev);
     return buffer[0];
 }
 
 //read 16 bits from register
-static uint16_t read16(const i2c_dev_t *i2c_dev, uint16_t reg_addr)
+static uint16_t read16(i2c_dev_t *i2c_dev, uint16_t reg_addr)
 {
     uint8_t buffer[2] = {reg_addr, 0};
 
-    I2C_DEV_TAKE_MUTEX(&i2c_dev);
+    I2C_DEV_TAKE_MUTEX(i2c_dev);
     
-    if (!i2c_dev_write_reg(&i2c_dev, reg_addr, buffer, 1))
-        return ESP_FAIL;
+    i2c_dev_write_reg(i2c_dev, reg_addr, buffer, 1);
+    i2c_dev_read_reg(i2c_dev, reg_addr, buffer, 2);
 
-    i2c_dev_read_reg(&i2c_dev, reg_addr, buffer, 2);
-
-    I2C_DEV_GIVE_MUTEX(&i2c_dev);
+    I2C_DEV_GIVE_MUTEX(i2c_dev);
 
     return ((uint16_t)buffer[0]) | ((uint16_t)buffer[1] << 8);
 }
 
 
 //write to 8 bit register
-static esp_err_t write8(const i2c_dev_t *i2c_dev,  uint8_t reg_addr, uint8_t val) 
+static esp_err_t write8(i2c_dev_t *i2c_dev,  uint8_t reg_addr, uint8_t val) 
 {
     esp_err_t ok;
-    uint8_t buffer[2] = {reg, val};
+    uint8_t buffer[2] = {reg_addr, val};
 
-    I2C_DEV_TAKE_MUTEX(&i2c_dev);
-    ok = i2c_dev_write_reg(&i2c_dev, reg_addr, buffer, 2);
-    I2C_DEV_GIVE_MUTEX(&i2c_dev);
+    I2C_DEV_TAKE_MUTEX(i2c_dev);
+    ok = i2c_dev_write_reg(i2c_dev, reg_addr, buffer, 2);
+    I2C_DEV_GIVE_MUTEX(i2c_dev);
 
     return ok;
 }
 
 
-static uint8_t writeParam(const i2c_dev_t *i2c_dev, uint8_t p, uint8_t v) 
+static uint8_t writeParam(i2c_dev_t *i2c_dev, uint8_t p, uint8_t v) 
 {
-    write8(&i2c_dev, SI1145_REG_PARAMWR, v);
-    write8(&i2c_dev, SI1145_REG_COMMAND, p | SI1145_PARAM_SET);
-    return read8(&i2c_dev, SI1145_REG_PARAMRD);
+    write8(i2c_dev, SI1145_REG_PARAMWR, v);
+    write8(i2c_dev, SI1145_REG_COMMAND, p | SI1145_PARAM_SET);
+    return read8(i2c_dev, SI1145_REG_PARAMRD);
 }
 
 
-static uint8_t readParam(const i2c_dev_t *i2c_dev, uint8_t p) 
+static uint8_t readParam(i2c_dev_t *i2c_dev, uint8_t p) 
 {
-    write8(&i2c_dev, SI1145_REG_COMMAND, p | SI1145_PARAM_QUERY);
-    return read8(&i2c_dev, SI1145_REG_PARAMRD);
+    write8(i2c_dev, SI1145_REG_COMMAND, p | SI1145_PARAM_QUERY);
+    return read8(i2c_dev, SI1145_REG_PARAMRD);
 }
