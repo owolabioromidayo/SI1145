@@ -4,7 +4,7 @@
 #include <stdio.h>>
 
 #define GPIO_SDA GPIO_NUM_21
-#define GPIO_SCL GPIO_NUM_22in
+#define GPIO_SCL GPIO_NUM_22
 
 void get_uv_values(void)
 {
